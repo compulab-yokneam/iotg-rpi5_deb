@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+SRC_DIR="/usr/lib/iotg-rpi5-firmware"
+OVERLAY_SRC_DIR="${SRC_DIR}/overlays/iotg-rpi5"
+BOOT_DIR="/boot/firmware"
+OVERLAY_BOOT_DIR="/boot/firmware/overlays"
+
+echo "Installing IOT-GATE-RPI5 Device Tree Blobs and Overlays..."
+
+if [ -d "${SRC_DIR}" ]; then
+	# 1. Make sure the target dir exists
+	mkdir -p "${OVERLAY_BOOT_DIR}"
+
+	# 2. Copy *.dtb
+	find "${SRC_DIR}" -maxdepth 1 -name "*.dtb" -exec cp -f {} "${BOOT_DIR}/" \;
+
+	# 3. Copy overlays
+	[[ -d ${OVERLAY_SRC_DIR} ]] && cp -r ${OVERLAY_SRC_DIR} ${OVERLAY_BOOT_DIR}
+
+	# 4. Sync
+	sync
+fi
+
+exit 0

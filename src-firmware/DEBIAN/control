@@ -1,0 +1,8 @@
+Package: iot-gate-rpi5-firmware
+Version: 1.0.1
+Section: kernel
+Priority: optional
+Architecture: arm64
+Maintainer: Ilya Ledvich <ilya@compulab.co.il>
+Depends: bash, coreutils
+Description: Pre-built Device Tree Blobs and Overlays for IOT-GATE-RPI5 platform.

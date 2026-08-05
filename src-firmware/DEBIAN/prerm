@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+SRC_DIR="/usr/lib/iotg-rpi5-firmware"
+OVERLAY_SRC_DIR="${SRC_DIR}/overlays/iotg-rpi5"
+BOOT_DIR="/boot/firmware"
+OVERLAY_BOOT_DIR="/boot/firmware/overlays"
+
+echo "Removing IOT-GATE-RPI5 Device Tree Blobs and Overlays..."
+
+if [ -d "${SRC_DIR}" ]; then
+	# 1. Cleanup *.dtb
+	find "${SRC_DIR}" -maxdepth 1 -name "*.dtb" -exec bash -c 'rm -f "$1/$(basename "$2")"' _ "${BOOT_DIR}" {} \;
+
+	# 2. Cleanup overlays
+	if [ -d "${OVERLAY_BOOT_DIR}/iotg-rpi5" ]; then
+		rm -rf "${OVERLAY_BOOT_DIR}/iotg-rpi5"
+	fi
+
+	# 3. Sync
+	sync
+fi
+
+exit 0
