@@ -1,0 +1,97 @@
+#!/bin/bash
+
+SCR_NAME=$(basename ${BASH_SOURCE[0]})
+[[ -z ${IOTG_LIB_HOME} ]] && export IOTG_LIB_HOME=$(dirname $(readlink -e ${BASH_SOURCE[0]}))
+
+# Includes
+. ${IOTG_LIB_HOME}/common.inc
+. ${IOTG_LIB_HOME}/stack_lib.inc
+. ${IOTG_LIB_HOME}/dio_lib.inc
+
+function usage() {
+	local ret=${1:-0}
+cat << EOF
+Usage: ${SCR_NAME} [options]
+
+Print Digital I/O (DIO) to GPIO chip/line mapping info
+
+Options:
+ -h:    display this help and exit
+EOF
+	exit ${ret}
+}
+
+export DELIM_LINE="~~~~~~~~~~~~~~~~~"
+
+function dio_map_show() {
+	local di_num=${#DI_PIN[@]}
+	local do_num=${#DO_PIN[@]}
+	# Header
+	printf "\t%s\n\t%s %s %s\n\t%-7s %s %s\n\t%s\n" "${DELIM_LINE}" "Digital" "GPIO" "GPIO" "Signal" "Chip" "Line" "${DELIM_LINE}"
+	for (( i=0; i<${di_num}; i++ )) ; do
+		printf "\t%s %s:   %-2s   %-2s\n" "DI" "${i}" "${DI_CHIP[${i}]}" "${DI_PIN[${i}]}"
+	done
+	[[ ${di_num} -eq 0 ]] || printf "\t%s\n" "${DELIM_LINE}"
+	for (( i=0; i<${do_num}; i++ )) ; do
+		printf "\t%s %s:   %-2s   %-2s\n" "DO" "${i}" "${DO_CHIP[${i}]}" "${DO_PIN[${i}]}"
+	done
+	[[ ${do_num} -eq 0 ]] || printf "\t%s\n" "${DELIM_LINE}"
+	printf "\n"
+}
+
+function list_dio_map_stack () {
+	. ${IOTG_LIB_HOME}/stack_lib.inc
+
+	local slot=${1:-${IE_DIO_SLOT}}
+	local ie_type=${IE_TYPE_ND}
+	local dmap=
+	local di_num=
+	local do_num=
+
+	local slot_home=${FPE_HOME}/${slot}
+	[[ -d ${slot_home} ]] || return
+	ie_type=$(ls ${slot_home} | grep "${IE_TYPE}\.")
+	ie_type="${ie_type##*.}"
+	[[ "${ie_type}" == "${IE_DIO}" ]] || return
+
+	di_num=0
+	dmap=${slot_home}/${IE_ACCESS}/${ACCESS_DI}
+	if [[ -e ${dmap} ]] ; then
+		{ read -a DI_CHIP ; read -a DI_PIN ; } <${dmap}
+		di_num=${#DI_PIN[@]}
+	fi
+	do_num=0
+	dmap=${slot_home}/${IE_ACCESS}/${ACCESS_DO}
+	if [[ -e ${dmap} ]] ; then
+		{ read -a DO_CHIP ; read -a DO_PIN ; } <${dmap}
+		do_num=${#DO_PIN[@]}
+	fi
+	printf "Stack Slot ${slot^^}:\t%s\t(%dx DI; %dx DO)\n" ${ie_type} ${di_num} ${do_num}
+	dio_map_show
+}
+
+function list_dio_map() {
+	local slot=${1:-${IE_DIO_SLOT}}
+	if [[ -z ${slot} || "${slot}" != "${IE_DIO_SLOT}" ]] ; then
+		return 1
+	fi
+
+	list_dio_map_stack ${slot}
+}
+
+function main() {
+	while getopts ':h' OPTION; do
+		case "${OPTION}" in
+		"h")
+			usage 0
+			;;
+		?)
+			usage 1
+			;;
+		esac
+	done
+
+	list_dio_map
+}
+
+main $@

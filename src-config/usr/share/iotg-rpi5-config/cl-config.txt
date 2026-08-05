@@ -1,0 +1,18 @@
+#### I/O Slots A and B
+# Set one of the options below:
+# - can      - CAN FD interface
+# - rs485    - RS-485 interface (half-duplex)
+# Leave unset (or comment out) for an idle slot
+# Example: ie_b=rs485    # <-- enable RS-485 interface on I/O Slot B
+#ie_a=
+#ie_b=
+
+#### I/O Slot C
+# Set the 'dio' option and select pins to be configured as outputs;
+# unspecified pins will be configured as inputs:
+# - dio[,o0][,o1][,o2][,o3]    - DIO block: selected pins are outputs (inputs by default)
+# Leave unset (or comment out) for all pins configured as inputs
+# Example: ie_c=dio,o1,o3    # <-- configure pins 0 and 2 as Digital Inputs (DI0, DI2),
+#                            #     and pins 1 and 3 as Digital Outputs (DO1, DO3)
+#ie_c=dio
+

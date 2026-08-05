@@ -1,0 +1,49 @@
+#!/bin/bash
+set -e
+
+CONFIG_TXT="/boot/firmware/config.txt"
+CONFIG_TXT_ADDON="/usr/share/iotg-rpi5-config/config.txt.addon"
+CL_CONFIG_SRC="/usr/share/iotg-rpi5-config/cl-config.txt"
+CL_CONFIG_TRG="/boot/firmware/cl-config.txt"
+
+echo "Configuring IOT-GATE-RPI5 system tweaks..."
+
+# 1. Update config.txt
+if [ -f "${CONFIG_TXT}" ]; then
+	echo "Updating config.txt..."
+	# Backuping config.txt
+	cp "${CONFIG_TXT}" "${CONFIG_TXT}.bak"
+	# Open a new section [all] at the the end of the file to isolate package-specific modifications
+	echo -e "\n[all]" >> "${CONFIG_TXT}"
+	# Add IOT-GATE-RPI5 device tree and overlays
+	cat ${CONFIG_TXT_ADDON} >> "${CONFIG_TXT}"
+    # Cleaning up random duplicate empty lines
+    sed -i '/^$/N;/^\n$/D' "${CONFIG_TXT}"
+fi
+
+# 2. Copy cl-config
+if [ -f "${CL_CONFIG_SRC}" ]; then
+    echo "Installing cl-config.txt to /boot/firmware/..."
+    cp "${CL_CONFIG_SRC}" "${CL_CONFIG_TRG}"
+    sync
+fi
+
+# 3. Update udev rules
+if [ -d /run/udev ]; then
+    echo "Reloading udev rules..."
+    udevadm control --reload-rules && udevadm trigger
+fi
+
+# 4. Enable systemd services
+echo "Enabling systemd services..."
+systemctl daemon-reload
+systemctl enable iotg-rpi5-gw-config.service
+systemctl enable iotg-rpi5-stack-config.service
+
+# Run the service only on the "live" system (skip if the build is in chroot)
+if [ -z "${DPKG_ROOT}" ]; then
+    systemctl restart iotg-rpi5-gw-config.service || true
+    systemctl restart iotg-rpi5-stack-config.service || true
+fi
+
+exit 0

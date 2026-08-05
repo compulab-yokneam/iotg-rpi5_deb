@@ -1,0 +1,57 @@
+#!/bin/bash
+
+SCR_NAME=$(basename ${BASH_SOURCE[0]})
+[[ -z ${IOTG_LIB_HOME} ]] && export IOTG_LIB_HOME=$(dirname $(readlink -e ${BASH_SOURCE[0]}))
+
+# Includes
+. ${IOTG_LIB_HOME}/common.inc
+. ${IOTG_LIB_HOME}/stack_lib.inc
+. ${IOTG_LIB_HOME}/dio_lib.inc
+
+function usage() {
+	local ret=${1:-0}
+cat << EOF
+Usage: ${SCR_NAME} [options] <offset>
+
+Read digital input state from the Digital I/O (DIO) module
+
+Command:
+ offset: input pin offset: <0..MaxOffset>
+Options:
+ -h:    display this help and exit
+EOF
+	exit ${ret}
+}
+
+declare -a D_CHIP=()
+declare -a D_PIN=()
+
+function main() {
+	local slot=${IE_DIO_SLOT}
+	local offset=
+	local state=
+
+	while getopts ':h' OPTION; do
+		case "${OPTION}" in
+		"h")
+			usage 0
+			;;
+		?)
+			usage 1
+			;;
+		esac
+	done
+
+	offset="${1:-}"
+	[[ -n ${offset} ]] || err_msg "Input pin offset is missing"
+
+	# Check parameters
+	check_params_in ${slot} ${offset}
+	# Read state
+	state=$(gpioget ${LIBGPIOD_OPT} ${D_CHIP[${offset}]}  ${D_PIN[${offset}]})
+	ret=$?
+	[[ ${ret} -ne 0 ]] || echo ${state}
+	return ${ret}
+}
+
+main $@

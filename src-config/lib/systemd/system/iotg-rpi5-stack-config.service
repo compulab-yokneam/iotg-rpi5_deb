@@ -1,0 +1,12 @@
+[Unit]
+Description=Configure IOT-GATE-RPI5 I/O Stack
+After=serial-getty@.service iotg-rpi5-gw-config.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/iot-gate-rpi5/shell/stack.sh "config" "1"
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

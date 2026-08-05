@@ -1,0 +1,12 @@
+[Unit]
+Description=Configure IOT-GATE-RPI5 Gateway
+After=serial-getty@.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/iot-gate-rpi5/shell/gw.sh "config" "1"
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

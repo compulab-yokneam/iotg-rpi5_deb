@@ -1,0 +1,130 @@
+#!/bin/bash
+
+[[ -z ${IOTG_LIB_HOME} ]] && export IOTG_LIB_HOME=$(dirname $(readlink -e ${BASH_SOURCE[0]}))
+
+# Includes
+. ${IOTG_LIB_HOME}/common.inc
+. ${IOTG_LIB_HOME}/gw.inc
+. ${IOTG_LIB_HOME}/status_leds.sh
+
+# Defines
+pressed="code 171 (KEY_CONFIG), value 1"
+state="ok"
+cmd_button="$(readlink -e ${GW_ACCESS_CMD_BTN_HOME}/${GW_ACCESS_CMD_BTN})"
+[[ -z ${cmd_button} ]] && exit 1
+LEDS_HOME=${GW_ACCESS_LED_HOME}
+LED_OK="green_a"
+LED_SOS="red_a"
+
+
+##########################################
+# Load load kernel modules needed by LEDs
+function load_led_trg() {
+	dmesg -D
+	modprobe ${LED_TRG_PTRN_MOD} > /dev/null 2>&1
+	sleep .5
+	dmesg -E
+}
+
+##########################################
+# unload kernel modules needed by LEDs
+function unload_led_trg() {
+	dmesg -D
+	modprobe ${LED_TRG_PTRN_MOD} -r > /dev/null 2>&1
+	dmesg -E
+}
+
+
+##########################################
+# Switch all LEDs off
+function all_leds_off() {
+	for l in "${LED_OK}" "${LED_SOS}" ; do
+		set_led off ${l}
+	done
+}
+
+##########################################
+# Cleanup and exit
+##########################################
+function stop_exit() {
+	local ret=${1:-"0"}
+	pkill -P $$
+	all_leds_off
+	[[ ${do_load} -eq 1 ]] && unload_led_trg || true
+	exit ${ret}
+}
+
+function fail() {
+	echo "ERROR: $@"
+	stop_exit 1
+}
+
+##########################################
+# Set a new state to a specified LED 
+##########################################
+function set_led() {
+	local code=${1}
+	local led=${2:-''}
+
+	case ${code} in
+	"off")
+		echo none > ${LEDS_HOME}/${led}/trigger
+		return 0
+		;;
+	"ok")
+		led=${LED_OK}
+		;;
+	"sos")
+		led=${LED_SOS}
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	echo "CMD Button pressed: LED state: ${led:0:-2}"
+	echo pattern > ${LEDS_HOME}/${led}/trigger || fail "Failed to configure 'pattern' trigger to the '${led}' LED"
+	sleep 0.1
+	declare -n PATTERN="PATTERN_"${code^^}
+	echo "${PATTERN}" > ${LEDS_HOME}/${led}/pattern || fail "Failed to set pattern to the '${led}' LED"
+	sleep 0.1
+}
+
+
+# Clear exit
+trap stop_exit SIGINT
+
+# Initial LEDs state
+all_leds_off
+
+# Check if LED pattern trigger module is required
+lsmod | grep -q ${LED_TRG_PTRN_MOD} ; do_load=$?
+[[ ${do_load} -eq 1 ]] && load_led_trg || true
+
+cat << EOF
+           #######################
+           #   CMD Button Demo   #
+           #######################
+
+Press CMD button and observe User LED A state change
+
+Press 'Ctrl+C' to stop the Demo
+EOF
+
+##########################################
+# The main loop: 
+# 1) Read input event
+# 2) Detect the CMD button pressed
+# 3) Set a new state (either OK or SOS)
+##########################################
+evtest "${cmd_button}" | while read line; do
+	if [[ "${line}" == *"${pressed}"* ]] ; then
+	   if [[ "${state}" == "ok" ]]; then
+	   	   state="sos"
+	   else
+	   	   state="ok"
+	   fi
+	   cmd=cmd_${state}
+	   command -v ${!cmd} &>/dev/null && ${cmd} || true
+	fi
+done

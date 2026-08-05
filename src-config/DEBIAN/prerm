@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+CONFIG_TXT="/boot/firmware/config.txt"
+CL_CONFIG="/boot/firmware/cl-config.txt"
+IOTG_RPI5_PATTERN="iotg-rpi5"
+NEW_CONFIG=$(mktemp --dry-run -p /tmp config.txt.XXX)
+
+echo "Removing IOT-GATE-RPI5 custom configurations..."
+
+# 1. Disable/stop services
+systemctl disable iotg-rpi5-gw-config.service || true
+systemctl disable iotg-rpi5-stack-config.service || true
+systemctl stop iotg-rpi5-gw-config.service || true
+systemctl stop iotg-rpi5-stack-config.service || true
+
+# 2. Cleanup config.txt
+if [ -f "${CONFIG_TXT}" ]; then
+	# Backuping config.txt
+	grep -iv "${IOTG_RPI5_PATTERN}" ${CONFIG_TXT} > ${NEW_CONFIG}
+	# Clean up the [all] section if it remains empty
+	sed -i '/^\[all\]$/ { N; /^\n$/ d }' "${CONFIG_TXT}"
+	cp "${CONFIG_TXT}" "${CONFIG_TXT}.bak"
+	mv ${NEW_CONFIG} ${CONFIG_TXT}
+fi
+
+# 3. Remove cl-config.txt
+rm ${CL_CONFIG}
+
+exit 0

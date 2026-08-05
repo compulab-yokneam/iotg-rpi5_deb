@@ -1,0 +1,9 @@
+### RS485 A
+SUBSYSTEM=="tty", KERNEL=="ttyAMA4", SYMLINK+="ttyRS485_A"
+### CAN A
+SUBSYSTEM=="net", ACTION=="add", DEVPATH=="/devices/platform/axi/1000120000.pcie/1f00058000.spi/spi_master/spi2/spi2.0/net/can?", NAME="canA"
+
+### RS485 B
+SUBSYSTEM=="tty", KERNEL=="ttyAMA2", SYMLINK+="ttyRS485_B"
+### CAN B
+SUBSYSTEM=="net", ACTION=="add", DEVPATH=="/devices/platform/axi/1000120000.pcie/1f00050000.spi/spi_master/spi0/spi0.0/net/can?", NAME="canB"

@@ -1,0 +1,463 @@
+#!/bin/bash
+
+CONFIG_DEV_CHANGE=0
+ASK_TO_REBOOT=0
+
+[[ -z ${IOTG_LIB_HOME} ]] && export IOTG_LIB_HOME=$(dirname $(readlink -e ${BASH_SOURCE[0]}))
+. ${IOTG_LIB_HOME}/common.inc
+. ${IOTG_LIB_HOME}/stack_lib.sh
+
+UNRECOGNIZED_ERR="Programmer error: unrecognized option"
+RUNNING_ERR="There was an error running option"
+
+#############################################################################
+calc_wt_size() { # Taken from raspi-config
+	# NOTE: it's tempting to redirect stderr to /dev/null, so supress error 
+	# output from tput. However in this case, tput detects neither stdout or 
+	# stderr is a tty and so only gives default 80, 24 values
+	WT_HEIGHT=18
+	WT_WIDTH=$(tput cols)
+
+	if [ -z "$WT_WIDTH" ] || [ "$WT_WIDTH" -lt 60 ]; then
+		WT_WIDTH=80
+	fi
+	if [ "$WT_WIDTH" -gt 178 ]; then
+		WT_WIDTH=120
+	fi
+	WT_MENU_HEIGHT=$((WT_HEIGHT - 7))
+}
+
+#############################################################################
+# Apply user defined configuration by putting appropriate lines into config.txt
+# Additionally, put the Industrial I/O configuration (IE) into cl-config.txt
+#############################################################################
+do_apply_config() {
+	if [ ! -f ${CONFIG} ]; then
+		whiptail --title "Failure" --msgbox "\
+		Cannot apply configuration changes:
+		${CONFIG} file not found" 10 60 1
+		exit 1
+	fi
+	## Prepare IOTG-PRi5 config
+	: > ${IOTG_RPI5_CONFIG}
+
+	## Prepare C-Lab IOTG-PRi5 config
+	: > ${NEW_CL_CONFIG}
+cat  << EOF > ${NEW_CL_CONFIG}
+#### I/O Slots A and B
+# Set one of the options below:
+# - can      - CAN FD interface
+# - rs485    - RS-485 interface (half-duplex)
+# Leave unset (or comment out) for an idle slot
+# Example: ie_b=rs485    # <-- enable RS-485 interface on I/O Slot B
+#ie_a=
+#ie_b=
+
+#### I/O Slot C
+# Set the 'dio' option and select pins to be configured as outputs;
+# unspecified pins will be configured as inputs:
+# - dio[,o0][,o1][,o2][,o3]    - DIO block: selected pins are outputs (inputs by default)
+# Leave unset (or comment out) for all pins configured as inputs
+# Example: ie_c=dio,o1,o3    # <-- configure pins 0 and 2 as Digital Inputs (DI0, DI2),
+#                            #     and pins 1 and 3 as Digital Outputs (DO1, DO3)
+#ie_c=dio
+EOF
+
+	### Open IOTG-RPi5 section
+	IOTG_RPI5_CUTLINE="######## iotg-rpi5 configuration"
+	echo "${IOTG_RPI5_CUTLINE} - Begin" >> ${IOTG_RPI5_CONFIG}
+	echo "device_tree=${IOTG_RPI5_DTB}" >> ${IOTG_RPI5_CONFIG}
+
+	### Apply IE slots configuration: for each slot generate a line to be written into config.txt
+	local slot_list=$(seq ${BIDX} ${EIDX})
+	for slot in ${slot_list}; do
+		SLOT_CFG_STR=
+		SLOT_CL_CFG_STR=
+		SLOT_CL_CFG_KEY="${IE_SLOT_CFG}${STACK_SLOTS[${slot}],,}"
+		case ${IE_CONFIG[${slot}]} in
+		"CAN")
+			#### Enable CAN
+			# config.txt: slot ${slot}: enable CAN interface
+			SLOT_CFG_STR="dtoverlay=iotg-rpi5/iotg-rpi5-io-${STACK_SLOTS[${slot}],,},can"
+			# cl_config.txt: slot ${slot}: enable CAN interface
+			SLOT_CL_CFG_STR="can"
+			;;
+		"RS485")
+			#### Enable RS485
+			# config.txt: slot ${slot}: enable RS485 interface
+			SLOT_CFG_STR="dtoverlay=iotg-rpi5/iotg-rpi5-io-${STACK_SLOTS[${slot}],,},rs485"
+			# cl_config.txt: slot ${slot}: enable RS485 interface
+			SLOT_CL_CFG_STR="rs485"
+			;;
+		"DIO")
+			#### Enable DIO
+			# config.txt: set DIO configuration
+			SLOT_CFG_STR="dtoverlay=iotg-rpi5/iotg-rpi5-dio"
+			# cl_config.txt: set DIO configuration
+			SLOT_CL_CFG_STR="dio"
+			local dio_list=$(seq ${BDIO} ${EDIO})
+			for p in ${dio_list} ; do
+				if [[ ${DO_UMAP[${p}]} -eq ${DIO_VAL} ]] ; then
+					SLOT_CFG_STR+=",o${p}"
+					SLOT_CL_CFG_STR+=",o${p}"
+				fi
+			done
+			;;
+		"IDLE"|*)
+			#### Do nothing 
+			SLOT_CFG_STR=
+			SLOT_CL_CFG_STR=
+			continue
+			;;
+		esac
+		# Push the new configuration to the config.txt
+		[[ -z ${SLOT_CFG_STR} ]] || echo ${SLOT_CFG_STR} >> ${IOTG_RPI5_CONFIG}
+		# Push the new configuration to the cl_config.txt
+		[[ -z ${SLOT_CL_CFG_STR} ]] || set_config_var ${SLOT_CL_CFG_KEY} ${SLOT_CL_CFG_STR} ${NEW_CL_CONFIG}
+	done
+
+	### Unconditional peripherals: add below if needed
+
+	### Close IOTG-RPi5 section
+	echo "${IOTG_RPI5_CUTLINE} - End" >> ${IOTG_RPI5_CONFIG}
+
+	### Remove previous IOTG-RPi5 section from the config.txt
+	grep -iv "${IOTG_RPI5_PATTERN}" ${CONFIG} > ${NEW_CONFIG}
+	## Add the new IOTG-RPi5 section
+	if [ -f ${IOTG_RPI5_CONFIG} ]; then
+		cat ${IOTG_RPI5_CONFIG} >> ${NEW_CONFIG}
+	fi
+
+	### Backup the previous config.txt and cl_config.txt
+	cp ${CONFIG} ${CONFIG_BAK}
+	cp ${CL_CONFIG} ${CL_CONFIG_BAK}
+	### Put the new config.txt and cl_config.txt to /boot directory
+	mv ${NEW_CONFIG} ${CONFIG}
+	mv ${NEW_CL_CONFIG} ${CL_CONFIG}
+	
+
+	## Remove temp files
+	#[[ ! -f ${IOTG_RPI5_CONFIG} ]] || rm ${IOTG_RPI5_CONFIG}
+
+	ASK_TO_REBOOT=1
+}
+
+#############################################################################
+# Ask for reboot if required
+#############################################################################
+do_finish() {
+	if [ $ASK_TO_REBOOT -eq 1 ]; then
+		whiptail --yesno "\
+		NOTE: ANY CHANGES WILL TAKE EFFECT ONLY AFTER REBOOT.
+
+		Would you like to reboot now?" 10 70 2
+		if [ $? -eq 0 ]; then # yes
+			sync
+			reboot
+		fi
+	fi
+	exit 0
+}
+
+#############################################################################
+# Exit w/o saving
+#############################################################################
+do_exit_nosave() {
+	whiptail --yesno "Would you like to exit without applying changes?" --yes-button Exit --no-button Back --defaultno 16 60 2
+	RET=$?
+	if [ $RET -eq 0 ]; then
+		ASK_TO_REBOOT=0
+		do_finish
+	fi	
+}
+
+#############################################################################
+# Apply configuration and exit
+#############################################################################
+do_exit_save() {
+	whiptail --yesno "Would you like to apply changes and exit?" --yes-button "Save & Exit" --no-button Back 16 60 2
+	RET=$?
+	if [ $RET -eq 0 ]; then
+		# Apply new configuration
+		do_apply_config
+		# Reboot
+		do_finish
+	fi
+}
+
+#############################################################################
+# Display current Industrial I/O Stack configuration
+#############################################################################
+do_ie_show () {
+	# Detect
+	stack_probe_silent
+	# Show
+	whiptail --title "Industrial I/O Stack: running configuration" --msgbox "\
+	Slot A:  [${IE_DETECTED[0]}] - ${CFG_DSCR[${IE_DETECTED[0]}]}
+
+
+	Slot B:  [${IE_DETECTED[1]}] - ${CFG_DSCR[${IE_DETECTED[1]}]}
+
+
+	Slot C:  [${IE_DETECTED[2]}] - ${CFG_DSCR[${IE_DETECTED[2]}]}
+
+	         IN OUT
+	   D0    [${DIO_VALUE_PRINT[${DI_CMAP[0]}]}][${DIO_VALUE_PRINT[${DO_CMAP[0]}]}]
+	   D1    [${DIO_VALUE_PRINT[${DI_CMAP[1]}]}][${DIO_VALUE_PRINT[${DO_CMAP[1]}]}]
+	   D2    [${DIO_VALUE_PRINT[${DI_CMAP[2]}]}][${DIO_VALUE_PRINT[${DO_CMAP[2]}]}]
+	   D3    [${DIO_VALUE_PRINT[${DI_CMAP[3]}]}][${DIO_VALUE_PRINT[${DO_CMAP[3]}]}]
+	" 20 70 1
+
+	return 0
+}
+
+#############################################################################
+# Display user defined I/O stack configuration
+#############################################################################
+do_ie_config_show () {
+	# Show
+	whiptail --title "Industrial I/O Stack: user configuration" --msgbox "\
+	Slot A:  [${IE_CONFIG[0]}] - ${CFG_DSCR[${IE_CONFIG[0]}]}
+
+
+	Slot B:  [${IE_CONFIG[1]}] - ${CFG_DSCR[${IE_CONFIG[1]}]}
+
+
+	Slot C:  [${IE_CONFIG[2]}] - ${CFG_DSCR[${IE_CONFIG[2]}]}
+
+	         IN OUT
+	   D0    [${DIO_VALUE_PRINT[${DI_UMAP[0]}]}][${DIO_VALUE_PRINT[${DO_UMAP[0]}]}]
+	   D1    [${DIO_VALUE_PRINT[${DI_UMAP[1]}]}][${DIO_VALUE_PRINT[${DO_UMAP[1]}]}]
+	   D2    [${DIO_VALUE_PRINT[${DI_UMAP[2]}]}][${DIO_VALUE_PRINT[${DO_UMAP[2]}]}]
+	   D3    [${DIO_VALUE_PRINT[${DI_UMAP[3]}]}][${DIO_VALUE_PRINT[${DO_UMAP[3]}]}]
+	" 20 70 1
+	return 0
+}
+
+declare -A CFG_DSCR=(
+		[CAN]="CAN FD interface"
+		[RS485]="RS-485 interface (half-duplex)"
+		[DIO]="4x Digital Signals (inputs or outputs)"
+		[IDLE]="No interface is enabled"
+		[Input]="Read-only access enabled"
+		[Output]="Write-only access enabled"
+)
+
+#############################################################################
+# I/O module configuration menu
+#############################################################################
+do_ie_config_serial () {
+	local slot_idx=${1:-}
+	[[ ! -z ${slot_idx} ]] || return 1
+	[[ ${slot_idx} -ge ${BIDX} ]] && [[ ${slot_idx} -le ${EIDX} ]] || return 1
+	declare -A slot_cfg=(
+		[CAN]=OFF
+		[RS485]=OFF
+		[IDLE]=OFF
+		)
+	local curr_cfg=${IE_CONFIG[${slot_idx}]}
+	slot_cfg["${curr_cfg}"]=ON
+	new_conf=$(whiptail --title "Industrial I/O Slot ${STACK_SLOTS[${slot_idx}]}" --separate-output --radiolist "" 16 80 4 \
+	"CAN" "${CFG_DSCR["CAN"]}" ${slot_cfg["CAN"]} \
+	"RS485" "${CFG_DSCR["RS485"]}" ${slot_cfg["RS485"]} \
+	"IDLE" "${CFG_DSCR["IDLE"]}" ${slot_cfg["IDLE"]} \
+	3>&1 1>&2 2>&3)
+	RET=$?
+	if [ ${RET} -eq 1 ] || [ ${RET} -eq 255 ]; then
+		return 0
+	fi
+
+	# Set slot new value
+	IE_CONFIG[${slot_idx}]=${new_conf}
+}
+
+do_dio_pin_config () {
+	local dio_idx=${1:-}
+	[[ ! -z ${dio_idx} ]] || return 1
+	[[ ${dio_idx} -ge ${BDIO} ]] && [[ ${dio_idx} -le ${EDIO} ]] || return 1
+	declare -A dio_cfg=(
+		[Input]=OFF
+		[Output]=OFF
+		)
+	[[ ${DI_UMAP[${dio_idx}]} -eq ${DIO_VAL} ]] && dio_cfg["Input"]=ON
+	[[ ${DO_UMAP[${dio_idx}]} -eq ${DIO_VAL} ]] && dio_cfg["Output"]=ON	
+	new_conf=$(whiptail --title "Digital Signal ${dio_idx}" --separate-output --radiolist "" 16 80 3 \
+	"Input" "${CFG_DSCR["Input"]}" ${dio_cfg["Input"]} \
+	"Output" "${CFG_DSCR["Output"]}" ${dio_cfg["Output"]} \
+	3>&1 1>&2 2>&3)
+	RET=$?
+	if [ ${RET} -eq 1 ] || [ ${RET} -eq 255 ]; then
+		return 0
+	fi
+
+	# Set slot new value
+	case ${new_conf} in
+	"Input")
+		DI_UMAP[${dio_idx}]=${DIO_VAL}
+		DO_UMAP[${dio_idx}]=${DIO_INV}
+		;;
+	"Output")
+		DI_UMAP[${dio_idx}]=${DIO_INV}
+		DO_UMAP[${dio_idx}]=${DIO_VAL}
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+do_dio_menu () {
+	while true; do
+		FUN=$(whiptail --title "Digital I/O (DIO) Options" --menu "" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+		"P0 D0         " "Configure Digital Signal 0" \
+		"P1 D1         " "Configure Digital Signal 1" \
+		"P2 D2         " "Configure Digital Signal 2" \
+		"P3 D3         " "Configure Digital Signal 3" \
+		3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$FUN" in
+			P0\ *) do_dio_pin_config 0 ;;
+			P1\ *) do_dio_pin_config 1 ;;
+			P2\ *) do_dio_pin_config 2 ;;
+			P3\ *) do_dio_pin_config 3 ;;
+			*) whiptail --msgbox "${UNRECOGNIZED_ERR}" 20 60 1 ;;
+			esac || whiptail --msgbox "${RUNNING_ERR} $FUN" 20 60 1
+		fi
+	done
+}
+
+do_ie_config_dio () {
+	local slot_idx=${1:-}
+	[[ ! -z ${slot_idx} ]] || return 1
+	[[ ${slot_idx} -eq ${STACK_SLOTS2IDX[${IE_DIO_SLOT}]} ]] || return 1
+	declare -A slot_cfg=(
+		["${IE_DIO}"]=ON
+		)
+	new_conf=$(whiptail --title "Industrial I/O Slot ${STACK_SLOTS[${slot_idx}]}" --separate-output --radiolist "" 16 80 2 \
+	"${IE_DIO}" "${CFG_DSCR[${IE_DIO}]}" ${slot_cfg[${IE_DIO}]} \
+	3>&1 1>&2 2>&3)
+	RET=$?
+	if [ ${RET} -eq 1 ] || [ ${RET} -eq 255 ]; then
+		return 0
+	fi
+
+	# Set slot new value
+	IE_CONFIG[${slot_idx}]=${new_conf}
+	do_dio_menu
+}
+
+#############################################################################
+# Slots configuration menu
+#############################################################################
+do_slots_menu () {
+	while true; do
+		FUN=$(whiptail --title "Industrial I/O Slots Options" --menu "" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+		"C1 Slot A        " "Configure Industrial I/O interface for slot A" \
+		"C2 Slot B        " "Configure Industrial I/O interface for slot B" \
+		"C3 Slot C        " "Configure Industrial I/O interface for slot C" \
+		3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$FUN" in
+			C1\ *) do_ie_config_serial 0 ;;
+			C2\ *) do_ie_config_serial 1 ;;
+			C3\ *) do_ie_config_dio 2 ;;
+			*) whiptail --msgbox "${UNRECOGNIZED_ERR}" 20 60 1 ;;
+			esac || whiptail --msgbox "${RUNNING_ERR} $FUN" 20 60 1
+		fi
+	done
+}
+
+#############################################################################
+# Show configuration menu
+#############################################################################
+do_slots_show_menu () {
+	while true; do
+		FUN=$(whiptail --title "Show Industrial I/O Stack Configuration" --menu "" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+		"S1 Show User Configured         " "Show user defined configuration" \
+		"S2 Show Current Configuration   " "Show currently run configuration" \
+		3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$FUN" in
+			S1\ *) do_ie_config_show ;;
+			S2\ *) do_ie_show ;;
+			*) whiptail --msgbox "${UNRECOGNIZED_ERR}" 20 60 1 ;;
+			esac || whiptail --msgbox "${RUNNING_ERR} $FUN" 20 60 1
+		fi
+	done
+}
+
+#############################################################################
+# I/O modules menu
+#############################################################################
+do_stack_menu () {
+	while true; do
+		FUN=$(whiptail --title "Industrial I/O Stack Options" --menu "" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+		"I1 Show         " "Show Industrial I/O Stack Configuration" \
+		"I2 Configure    " "Configure Industrial I/O Stack" \
+		3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$FUN" in
+			I1\ *) do_slots_show_menu ;;
+			I2\ *) do_slots_menu ;;
+			*) whiptail --msgbox "${UNRECOGNIZED_ERR}" 20 60 1 ;;
+			esac || whiptail --msgbox "${RUNNING_ERR} $FUN" 20 60 1
+		fi
+	done
+}
+
+
+# Main routine
+## Check user ID
+if [[ $(id -u) -ne 0 ]] ; then
+	printf "Please run as root: 'sudo ${BASH_SOURCE[0]}'\n";
+	exit 1
+fi
+
+## Check if -quiet flag is arrised
+flag=${1:-"-dialog"}
+if [[ "${flag}" == "-quiet" ]]; then
+	#
+	do_apply_config
+	exit 0
+fi
+
+## Calculate terminal size
+calc_wt_size
+## Probe all stack slots
+stack_probe_silent
+
+#############################################################################
+# Main menu
+#############################################################################
+while true; do
+	FUN=$(whiptail --title "IOTG-RPi5 Configuration Tool (iotg-rpi5-config)" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT \
+	"1 Industrial I/O Stack    " "Industrial I/O Stack options" \
+	"2 Save Changes and Exit" "Apply changes and exit" \
+	"3 Discard Changes and Exit" "Exit discarding changes" \
+	3>&1 1>&2 2>&3)
+	RET=$?
+	if [ $RET -eq 1 ]; then
+		do_exit_nosave
+    elif [ $RET -eq 0 ]; then
+		case "$FUN" in
+		1\ *) do_stack_menu ;;
+		2\ *) do_exit_save ;;
+		3\ *) do_exit_nosave ;;
+		*) whiptail --msgbox "${UNRECOGNIZED_ERR}" 20 60 1 ;;
+		esac || whiptail --msgbox "${RUNNING_ERR} $FUN" 20 60 1
+	else
+		exit 1
+	fi
+ done

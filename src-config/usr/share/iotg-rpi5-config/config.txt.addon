@@ -1,0 +1,4 @@
+######## iotg-rpi5 configuration - Begin
+device_tree=iotg-rpi5l.dtb
+dtoverlay=iotg-rpi5/iotg-rpi5-dio
+######## iotg-rpi5 configuration - End
