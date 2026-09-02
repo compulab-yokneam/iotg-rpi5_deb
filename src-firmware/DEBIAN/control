@@ -1,5 +1,5 @@
 Package: iot-gate-rpi5-firmware
-Version: 1.0.1
+Version: 1.0.2
 Section: kernel
 Priority: optional
 Architecture: arm64
