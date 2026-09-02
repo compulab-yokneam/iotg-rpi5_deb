@@ -1,9 +1,9 @@
 Package: iot-gate-rpi5-config
-Version: 1.0.1
+Version: 1.0.2
 Section: utils
 Priority: optional
 Architecture: all
 Maintainer: Ilya Ledvich <ilya@compulab.co.il>
-Depends: bash, coreutils, systemd, udev, tree, iot-gate-rpi5-firmware (>= 1.0.1)
+Depends: bash, coreutils, systemd, tree, udev, whiptail, iot-gate-rpi5-firmware (>= 1.0.1)
 Description: IOT-GATE-RPI5 Configuration suite
  Configuration and management suite providing support for IOT-GATE-RPI5 peripherals and Industrial I/O interfaces.
