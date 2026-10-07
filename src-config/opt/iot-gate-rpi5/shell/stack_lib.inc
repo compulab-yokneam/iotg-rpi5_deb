@@ -30,9 +30,26 @@ declare -A CAN_DEV_HOME=(
 
 ### DIO
 export IE_DIO="DIO"
-declare -a CHIP_O=(14 14 14 14)
+export GPIO_INV=-1
+
+function get_gpio_chip() {
+	local pttrn=${1:-}
+	if [[ -z ${pttrn} ]] ; then
+		echo ${GPIO_INV}
+		return
+	fi
+	echo $(gpiodetect | sed -nE "s/^gpiochip([0-9]+)\s+\[.*${pttrn}.*\].*/\1/p")
+}
+
+CHIP_O_PTTRN="3-0027"
+CHIP_I_PTTRN="pinctrl-rp1"
+chip_o_idx=$(get_gpio_chip ${CHIP_O_PTTRN})
+[[ -z ${chip_o_idx} ]] && chip_o_idx=${GPIO_INV}
+chip_i_idx=$(get_gpio_chip ${CHIP_I_PTTRN})
+[[ -z ${chip_i_idx} ]] && chip_i_idx=${GPIO_INV}
+declare -a CHIP_O=(${chip_o_idx} ${chip_o_idx} ${chip_o_idx} ${chip_o_idx})
 declare -a PIN_O=(0 1 2 3)
-declare -a CHIP_I=(0 0 0 0)
+declare -a CHIP_I=(${chip_i_idx} ${chip_i_idx} ${chip_i_idx} ${chip_i_idx})
 declare -a PIN_I=(6 19 25 27)
 ### 1-st DIO pin index: 'B' for begin
 export BDIO=0
@@ -82,7 +99,7 @@ declare -a IE_CONFIG=(
 
 ## DI / DO maps
 export DIO_VAL=0
-export DIO_INV=-1
+export DIO_INV=${GPIO_INV}
 declare -a DI_CMAP=(${DIO_VAL} ${DIO_VAL} ${DIO_VAL} ${DIO_VAL})
 declare -a DO_CMAP=(${DIO_INV} ${DIO_INV} ${DIO_INV} ${DIO_INV})
 

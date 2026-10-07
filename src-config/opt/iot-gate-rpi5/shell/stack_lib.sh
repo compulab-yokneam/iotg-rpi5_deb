@@ -128,10 +128,10 @@ function ie_grant_access() {
 			local len=${#DO_CMAP[@]}
 			# Mask unused pins
 			for (( i=0; i<len; i++ )) ; do
-				ci[i]=$(( CHIP_I[i] | DI_CMAP[i] ))
-				pi[i]=$(( PIN_I[i]  | DI_CMAP[i] ))
-				co[i]=$(( CHIP_O[i] | DO_CMAP[i] ))
-				po[i]=$(( PIN_O[i]  | DO_CMAP[i] ))
+				[[ ${CHIP_I[${i}]} -ne ${DIO_INV} ]] && ci[i]=$(( CHIP_I[i] | DI_CMAP[i] )) || ci[i]=${DIO_INV}
+				[[ ${CHIP_I[${i}]} -ne ${DIO_INV} ]] && pi[i]=$(( PIN_I[i]  | DI_CMAP[i] )) || pi[i]=${DIO_INV}
+				[[ ${CHIP_O[${i}]} -ne ${DIO_INV} ]] && co[i]=$(( CHIP_O[i] | DO_CMAP[i] )) || co[i]=${DIO_INV}
+				[[ ${CHIP_O[${i}]} -ne ${DIO_INV} ]] && po[i]=$(( PIN_O[i]  | DO_CMAP[i] )) || po[i]=${DIO_INV}
 			done
 			echo ${ci[@]} > ${ie_home}/${ACCESS_DI}
 			echo ${pi[@]} >> ${ie_home}/${ACCESS_DI}
